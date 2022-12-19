@@ -26,7 +26,7 @@ function setup_file() {
   wait_for_service "${CONTAINER_NAME}" postfix
   wait_for_smtp_port_in_container "${CONTAINER_NAME}"
 
-  _run_in_container bash -c "nc 0.0.0.0 25 < /tmp/docker-mailserver-test/email-templates/amavis-virus.txt"
+  _run_in_container /bin/bash -c "nc 0.0.0.0 25 < /tmp/docker-mailserver-test/email-templates/amavis-virus.txt"
   assert_success
 
   wait_for_empty_mail_queue_in_container "${CONTAINER_NAME}"
@@ -35,12 +35,12 @@ function setup_file() {
 function teardown_file() { _default_teardown ; }
 
 @test "${TEST_NAME_PREFIX} process clamd is running" {
-  _run_in_container bash -c "ps aux --forest | grep -v grep | grep '/usr/sbin/clamd'"
+  _run_in_container /bin/bash -c "ps aux --forest | grep -v grep | grep '/usr/sbin/clamd'"
   assert_success
 }
 
 @test "${TEST_NAME_PREFIX} log files exist at /var/log/mail directory" {
-  _run_in_container bash -c "ls -1 /var/log/mail/ | grep -E 'clamav|freshclam|mail.log' | wc -l"
+  _run_in_container /bin/bash -c "ls -1 /var/log/mail/ | grep -E 'clamav|freshclam|mail.log' | wc -l"
   assert_success
   assert_output 3
 }
@@ -51,7 +51,7 @@ function teardown_file() { _default_teardown ; }
 }
 
 @test "${TEST_NAME_PREFIX} freshclam cron is enabled" {
-  _run_in_container bash -c "grep '/usr/bin/freshclam' -r /etc/cron.d"
+  _run_in_container /bin/bash -c "grep '/usr/bin/freshclam' -r /etc/cron.d"
   assert_success
 }
 
@@ -61,11 +61,11 @@ function teardown_file() { _default_teardown ; }
 }
 
 @test "${TEST_NAME_PREFIX} rejects virus" {
-  _run_in_container bash -c "grep 'Blocked INFECTED' /var/log/mail/mail.log | grep '<virus@external.tld> -> <user1@localhost.localdomain>'"
+  _run_in_container /bin/bash -c "grep 'Blocked INFECTED' /var/log/mail/mail.log | grep '<virus@external.tld> -> <user1@localhost.localdomain>'"
   assert_success
 }
 
 @test "${TEST_NAME_PREFIX} process clamd restarts when killed" {
-  _run_in_container bash -c "pkill clamd && sleep 10 && ps aux --forest | grep -v grep | grep '/usr/sbin/clamd'"
+  _run_in_container /bin/bash -c "pkill clamd && sleep 10 && ps aux --forest | grep -v grep | grep '/usr/sbin/clamd'"
   assert_success
 }

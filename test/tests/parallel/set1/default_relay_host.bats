@@ -1,8 +1,8 @@
 load "${REPOSITORY_ROOT}/test/helper/setup"
 load "${REPOSITORY_ROOT}/test/helper/common"
 
-export TEST_NAME_PREFIX='default relay host:'
-export CONTAINER_NAME='dms-test-default_relay_host'
+TEST_NAME_PREFIX='default relay host:'
+CONTAINER_NAME='dms-test-default_relay_host'
 
 function setup_file() {
   init_with_defaults

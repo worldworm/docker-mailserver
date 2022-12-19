@@ -1,7 +1,7 @@
 load "${REPOSITORY_ROOT}/test/helper/setup"
 load "${REPOSITORY_ROOT}/test/helper/common"
 
-TEST_NAME_PREFIX='spam (Amavis):'
+TEST_NAME_PREFIX='Spam bounced:'
 CONTAINER_NAME='dms-test-spam_bounced'
 
 function setup_file() {
