@@ -2,13 +2,12 @@ load "${REPOSITORY_ROOT}/test/helper/setup"
 load "${REPOSITORY_ROOT}/test/helper/common"
 
 TEST_NAME_PREFIX='Fail2Ban:'
-
-CONTAINER1_NAME="dms-test-fail2ban"
-CONTAINER2_NAME="dms-test-fail2ban-fail_auth_mailer"
+CONTAINER1_NAME='dms-test-fail2ban'
+CONTAINER2_NAME='dms-test-fail2ban-fail_auth_mailer'
 CONTAINER_NAME=${CONTAINER1_NAME}
 
 function setup() {
-  FAIL_AUTH_MAILER_IP=$(docker inspect --format '{{ .NetworkSettings.IPAddress }}' "${CONTAINER2_NAME}")
+  CONTAINER2_IP=$(docker inspect --format '{{ .NetworkSettings.IPAddress }}' "${CONTAINER2_NAME}")
 }
 
 function setup_file() {
@@ -41,13 +40,14 @@ function teardown_file() {
 @test "${TEST_NAME_PREFIX} localhost is not banned because ignored" {
   _run_in_container /bin/sh -c "fail2ban-client status postfix-sasl | grep 'IP list:.*127.0.0.1'"
   assert_failure
-  _run_in_container /bin/sh -c "grep 'ignoreip = 127.0.0.1/8' /etc/fail2ban/jail.conf"
+  _run_in_container grep 'ignoreip = 127.0.0.1/8' /etc/fail2ban/jail.conf
   assert_success
 }
 
 @test "${TEST_NAME_PREFIX} fail2ban-fail2ban.cf overrides" {
-  _run_in_container /bin/sh -c "fail2ban-client get loglevel | grep DEBUG"
+  _run_in_container fail2ban-client get loglevel
   assert_success
+  assert_output --partial 'DEBUG'
 }
 
 @test "${TEST_NAME_PREFIX} fail2ban-jail.cf overrides" {
@@ -89,74 +89,85 @@ function teardown_file() {
     done < "/tmp/docker-mailserver-test/auth/smtp-auth-login-wrong.txt"'
   done
 
-  sleep 5
+  # need a bit more sleep as the test below that ´
+  # restarts F2B might interfere otherwise
+  sleep 30
 
-  # Checking that FAIL_AUTH_MAILER_IP is banned in "${CONTAINER1_NAME}"
-  _run_in_container /bin/sh -c "fail2ban-client status postfix-sasl | grep '${FAIL_AUTH_MAILER_IP}'"
+  # Checking that CONTAINER2_IP is banned in "${CONTAINER1_NAME}"
+  _run_in_container fail2ban-client status postfix-sasl
   assert_success
+  assert_output --partial "${CONTAINER2_IP}"
 
-  # Checking that FAIL_AUTH_MAILER_IP is banned by nftables
-  _run_in_container /bin/sh -c "nft list set inet f2b-table addr-set-postfix-sasl"
-  assert_output --partial "elements = { ${FAIL_AUTH_MAILER_IP} }"
+  # Checking that CONTAINER2_IP is banned by nftables
+  _run_in_container nft list set inet f2b-table addr-set-postfix-sasl
+  # BATS can reorder tests when running in parallel, which means we cannot use
+  # 'elements = { ${CONTAINER2_IP} }' because there might be other IPs already
+  # banned.
+  assert_output --partial "${CONTAINER2_IP}"
 }
 
 @test "${TEST_NAME_PREFIX} unban ip works" {
-  _run_in_container fail2ban-client set postfix-sasl unbanip "${FAIL_AUTH_MAILER_IP}"
+  _run_in_container fail2ban-client set postfix-sasl unbanip "${CONTAINER2_IP}"
   assert_success
   sleep 5
 
-  _run_in_container /bin/sh -c "fail2ban-client status postfix-sasl | grep 'IP list:.*${FAIL_AUTH_MAILER_IP}'"
-  assert_failure
+  _run_in_container fail2ban-client status postfix-sasl
+  assert_success
+  refute_output "IP list:.*${CONTAINER2_IP}"
 
-  # Checking that FAIL_AUTH_MAILER_IP is unbanned by nftables
-  _run_in_container /bin/sh -c "nft list set inet f2b-table addr-set-postfix-sasl"
-  refute_output --partial "${FAIL_AUTH_MAILER_IP}"
+  # Checking that CONTAINER2_IP is unbanned by nftables
+  _run_in_container /bin/bash -c "nft list set inet f2b-table addr-set-postfix-sasl"
+  refute_output --partial "${CONTAINER2_IP}"
 }
 
 @test "${TEST_NAME_PREFIX} bans work properly" {
   # Ban single IP address
   _run_in_container fail2ban ban 192.0.66.7
   assert_success
-  assert_output "Banned custom IP: 1"
+  assert_output 'Banned custom IP: 1'
 
   _run_in_container fail2ban
   assert_success
-  assert_output --regexp "Banned in custom:.*192\.0\.66\.7"
+  assert_output --regexp 'Banned in custom:.*192\.0\.66\.7'
 
   _run_in_container nft list set inet f2b-table addr-set-custom
   assert_success
-  assert_output --partial "elements = { 192.0.66.7 }"
+  assert_output --partial 'elements = { 192.0.66.7 }'
 
   _run_in_container fail2ban unban 192.0.66.7
   assert_success
-  assert_output --partial "Unbanned IP from custom: 1"
+  assert_output --partial 'Unbanned IP from custom: 1'
 
   _run_in_container nft list set inet f2b-table addr-set-custom
-  refute_output --partial "192.0.66.7"
+  refute_output --partial '192.0.66.7'
 
   # Ban IP network
   _run_in_container fail2ban ban 192.0.66.0/24
   assert_success
-  assert_output "Banned custom IP: 1"
+  assert_output 'Banned custom IP: 1'
 
   _run_in_container fail2ban
   assert_success
-  assert_output --regexp "Banned in custom:.*192\.0\.66\.0/24"
+  assert_output --regexp 'Banned in custom:.*192\.0\.66\.0/24'
 
   _run_in_container nft list set inet f2b-table addr-set-custom
   assert_success
-  assert_output --partial "elements = { 192.0.66.0/24 }"
+  assert_output --partial 'elements = { 192.0.66.0/24 }'
 
   _run_in_container fail2ban unban 192.0.66.0/24
   assert_success
-  assert_output --partial "Unbanned IP from custom: 1"
+  assert_output --partial 'Unbanned IP from custom: 1'
 
   _run_in_container nft list set inet f2b-table addr-set-custom
-  refute_output --partial "192.0.66.0/24"
+  refute_output --partial '192.0.66.0/24'
 }
 
 @test "${TEST_NAME_PREFIX} FAIL2BAN_BLOCKTYPE is really set to drop" {
-  _run_in_container bash -c 'nft list table inet f2b-table'
+  _run_in_container fail2ban-client set dovecot banip 192.33.44.55
+  _run_in_container fail2ban-client set postfix-sasl banip 192.33.44.55
+  _run_in_container fail2ban-client set custom banip 192.33.44.55
+
+  _run_in_container nft list table inet f2b-table
   assert_success
   assert_output --partial 'tcp dport { 110, 143, 465, 587, 993, 995, 4190 } ip saddr @addr-set-dovecot drop'
   assert_output --partial 'tcp dport { 25, 110, 143, 465, 587, 993, 995 } ip saddr @addr-set-postfix-sasl drop'
@@ -164,20 +175,20 @@ function teardown_file() {
 }
 
 @test "${TEST_NAME_PREFIX} setup.sh fail2ban" {
-  _run_in_container /bin/sh -c "fail2ban-client set dovecot banip 192.0.66.4"
-  _run_in_container /bin/sh -c "fail2ban-client set dovecot banip 192.0.66.5"
+  _run_in_container fail2ban-client set dovecot banip 192.0.66.4
+  _run_in_container fail2ban-client set dovecot banip 192.0.66.5
 
   sleep 10
 
   run ./setup.sh -c "${CONTAINER1_NAME}" fail2ban
-  assert_output --regexp '^Banned in dovecot:.*192\.0\.66\.4'
-  assert_output --regexp '^Banned in dovecot:.*192\.0\.66\.5'
+  assert_output --regexp 'Banned in dovecot:.*192\.0\.66\.4.*'
+  assert_output --regexp 'Banned in dovecot:.*192\.0\.66\.5.*'
 
   run ./setup.sh -c "${CONTAINER1_NAME}" fail2ban unban 192.0.66.4
   assert_output --partial "Unbanned IP from dovecot: 1"
 
   run ./setup.sh -c "${CONTAINER1_NAME}" fail2ban
-  assert_output --regexp "^Banned in dovecot:.*192\.0\.66\.5"
+  assert_output --regexp "Banned in dovecot:.*192\.0\.66\.5.*"
 
   run ./setup.sh -c "${CONTAINER1_NAME}" fail2ban unban 192.0.66.5
   assert_output --partial "Unbanned IP from dovecot: 1"

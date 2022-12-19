@@ -1,26 +1,22 @@
-load "${REPOSITORY_ROOT}/test/test_helper/common"
-load "${REPOSITORY_ROOT}/test/test_helper/tls"
+load "${REPOSITORY_ROOT}/test/helper/setup"
+load "${REPOSITORY_ROOT}/test/helper/common"
+load "${REPOSITORY_ROOT}/test/helper/tls"
 
-# Globals referenced from `test_helper/common`:
-# TEST_NAME TEST_FQDN TEST_TMP_CONFIG
+TEST_NAME_PREFIX="SSL Let'sEncrypt:"
+CONTAINER1_NAME='dms-test-ssl_letsencrypt-1'
+CONTAINER2_NAME='dms-test-ssl_letsencrypt-2'
+CONTAINER3_NAME='dms-test-ssl_letsencrypt-3'
+export TEST_FQDN='mail.example.test'
 
 # Requires maintenance (TODO): Yes
-# Can run tests in parallel?: No
+# Can run tests in parallel?: Yes
 
-# Not parallelize friendly when TEST_NAME is static,
-# presently name of test file: `mail_ssl_letsencrypt`.
-#
 # Also shares a common TEST_TMP_CONFIG local folder,
 # Instead of individual PRIVATE_CONFIG copies.
 # For this test that is a non-issue, unless run in parallel.
 
-
-# Applies to all tests:
-function setup_file() {
+function run_setup_for_individual_test() {
   init_with_defaults
-
-  # Override default to match the hostname we want to test against instead:
-  export TEST_FQDN='mail.example.test'
 
   # Prepare certificates in the letsencrypt supported file structure:
   # Note Certbot uses `privkey.pem`.
@@ -36,25 +32,23 @@ function setup_file() {
   _copy_to_letsencrypt_storage 'example.test/with_ca/ecdsa/key.rsa.pem' 'example.test/privkey.pem'
 }
 
-# Not used
-# function teardown_file() {
-# }
-
 function teardown() {
-  docker rm -f "${TEST_NAME}"
+  docker rm -f "${CONTAINER_NAME}"
 }
 
 # Should detect and choose the cert for FQDN `mail.example.test` (HOSTNAME):
-@test "ssl(letsencrypt): Should default to HOSTNAME (mail.example.test)" {
-  local TARGET_DOMAIN='mail.example.test'
+@test "${TEST_NAME_PREFIX} Should default to HOSTNAME (${TEST_FQDN})" {
+  export CONTAINER_NAME=${CONTAINER1_NAME}
+  local TARGET_DOMAIN=${TEST_FQDN}
 
-  local TEST_DOCKER_ARGS=(
+  run_setup_for_individual_test
+
+  local CUSTOM_SETUP_ARGUMENTS=(
     --volume "${TEST_TMP_CONFIG}/letsencrypt/${TARGET_DOMAIN}/:/etc/letsencrypt/live/${TARGET_DOMAIN}/:ro"
     --env PERMIT_DOCKER='container'
     --env SSL_TYPE='letsencrypt'
   )
-
-  common_container_setup 'TEST_DOCKER_ARGS'
+  common_container_setup 'CUSTOM_SETUP_ARGUMENTS'
 
   #test hostname has certificate files
   _should_have_valid_config "${TARGET_DOMAIN}" 'privkey.pem' 'fullchain.pem'
@@ -62,19 +56,20 @@ function teardown() {
   _should_not_support_fqdn_in_cert 'example.test'
 }
 
-
 # Should detect and choose cert for FQDN `example.test` (DOMAINNAME),
 # as fallback when no cert for FQDN `mail.example.test` (HOSTNAME) exists:
-@test "ssl(letsencrypt): Should fallback to DOMAINNAME (example.test)" {
+@test "${TEST_NAME_PREFIX} Should fallback to DOMAINNAME (example.test)" {
+  export CONTAINER_NAME=${CONTAINER2_NAME}
   local TARGET_DOMAIN='example.test'
 
-  local TEST_DOCKER_ARGS=(
+  run_setup_for_individual_test
+
+  local CUSTOM_SETUP_ARGUMENTS=(
     --volume "${TEST_TMP_CONFIG}/letsencrypt/${TARGET_DOMAIN}/:/etc/letsencrypt/live/${TARGET_DOMAIN}/:ro"
     --env PERMIT_DOCKER='container'
     --env SSL_TYPE='letsencrypt'
   )
-
-  common_container_setup 'TEST_DOCKER_ARGS'
+  common_container_setup 'CUSTOM_SETUP_ARGUMENTS'
 
   #test domain has certificate files
   _should_have_valid_config "${TARGET_DOMAIN}" 'privkey.pem' 'fullchain.pem'
@@ -88,7 +83,9 @@ function teardown() {
 # NOTE: Currently all of the `acme.json` configs have the FQDN match a SAN value,
 # all Subject CN (`main` in acme.json) are `Smallstep Leaf` which is not an FQDN.
 # While valid for that field, it does mean there is no test coverage against `main`.
-@test "ssl(letsencrypt): Traefik 'acme.json' (*.example.test)" {
+@test "${TEST_NAME_PREFIX} Traefik 'acme.json' (*.example.test)" {
+  export CONTAINER_NAME=${CONTAINER3_NAME}
+
   # This test group changes to certs signed with an RSA Root CA key,
   # These certs all support both FQDNs: `mail.example.test` and `example.test`,
   # Except for the wildcard cert `*.example.test`, which intentionally excluded `example.test` when created.
@@ -100,21 +97,22 @@ function teardown() {
   local TEST_CA_CERT="${TEST_FILES_CONTAINER_PATH}/ssl/example.test/with_ca/rsa/ca-cert.rsa.pem"
 
   function _prepare() {
+    run_setup_for_individual_test
+    # rm -r "${TEST_TMP_CONFIG}"/letsencrypt/*
+
     # Default `acme.json` for _acme_ecdsa test:
     cp "${LOCAL_BASE_PATH}/ecdsa.acme.json" "${TEST_TMP_CONFIG}/letsencrypt/acme.json"
 
     # TODO: Provision wildcard certs via Traefik to inspect if `example.test` non-wildcard is also added to the cert.
-    # shellcheck disable=SC2034
-    local TEST_DOCKER_ARGS=(
+    local CUSTOM_SETUP_ARGUMENTS=(
       --volume "${TEST_TMP_CONFIG}/letsencrypt/acme.json:/etc/letsencrypt/acme.json:ro"
       --env LOG_LEVEL='trace'
       --env PERMIT_DOCKER='container'
       --env SSL_DOMAIN='*.example.test'
       --env SSL_TYPE='letsencrypt'
     )
-
-    common_container_setup 'TEST_DOCKER_ARGS'
-    wait_for_service "${TEST_NAME}" 'changedetector'
+    common_container_setup 'CUSTOM_SETUP_ARGUMENTS'
+    wait_for_service "${CONTAINER_NAME}" 'changedetector'
 
     # Wait until the changedetector service startup delay is over:
     repeat_until_success_or_timeout 20 sh -c "$(_get_service_logs 'changedetector') | grep 'Changedetector is ready'"
@@ -184,7 +182,6 @@ function teardown() {
 # Test Methods
 #
 
-
 # Check that Dovecot and Postfix are configured to use a cert for the expected FQDN:
 function _should_have_valid_config() {
   local EXPECTED_FQDN=${1}
@@ -199,15 +196,13 @@ function _should_have_valid_config() {
 
 # CMD ${1} run in container with output checked to match value of ${2}:
 function _has_matching_line() {
-  run docker exec "${TEST_NAME}" sh -c "${1} | grep '${2}'"
+  _run_in_container /bin/bash -c "${1} | grep '${2}'"
   assert_output "${2}"
 }
-
 
 #
 # Traefik `acme.json` specific
 #
-
 
 # It should log success of extraction for the expected domain and restart Postfix.
 function _should_have_succeeded_at_extraction() {
@@ -252,7 +247,7 @@ function _should_have_service_restart_count() {
   local NUM_RESTARTS=${1}
 
   # Count how many times postfix was restarted by the `changedetector` service:
-  run docker exec "${TEST_NAME}" sh -c "grep -c 'postfix: started' /var/log/supervisor/changedetector.log"
+  _run_in_container /bin/bash -c "grep -c 'postfix: started' /var/log/supervisor/changedetector.log"
   assert_output "${NUM_RESTARTS}"
 }
 
@@ -268,11 +263,9 @@ function _should_have_expected_files() {
   _should_be_equal_in_content "${LE_CERT_PATH}" "${EXPECTED_CERT_PATH}"
 }
 
-
 #
 # Misc
 #
-
 
 # Rename test certificate files to match the expected file structure for letsencrypt:
 function _copy_to_letsencrypt_storage() {
@@ -283,14 +276,18 @@ function _copy_to_letsencrypt_storage() {
   FQDN_DIR=$(echo "${DEST}" | cut -d '/' -f1)
   mkdir -p "${TEST_TMP_CONFIG}/letsencrypt/${FQDN_DIR}"
 
-  cp "${PWD}/test/test-files/ssl/${SRC}" "${TEST_TMP_CONFIG}/letsencrypt/${DEST}"
+  if ! cp "${PWD}/test/test-files/ssl/${SRC}" "${TEST_TMP_CONFIG}/letsencrypt/${DEST}"
+  then
+    echo "Could not copy cert file '${SRC}'' to '${DEST}'" >&2
+    exit 1
+  fi
 }
 
 function _should_be_equal_in_content() {
   local CONTAINER_PATH=${1}
   local LOCAL_PATH=${2}
 
-  run docker exec "${TEST_NAME}" sh -c "cat ${CONTAINER_PATH}"
+  _run_in_container /bin/bash -c "cat ${CONTAINER_PATH}"
   assert_output "$(cat "${LOCAL_PATH}")"
   assert_success
 }
@@ -298,13 +295,13 @@ function _should_be_equal_in_content() {
 function _get_service_logs() {
   local SERVICE=${1:-'mailserver'}
 
-  local CMD_LOGS=(docker exec "${TEST_NAME}" "supervisorctl tail -2200 ${SERVICE}")
+  local CMD_LOGS=(docker exec "${CONTAINER_NAME}" "supervisorctl tail -2200 ${SERVICE}")
 
   # As the `mailserver` service logs are not stored in a file but output to stdout/stderr,
   # The `supervisorctl tail` command won't work; we must instead query via `docker logs`:
   if [[ ${SERVICE} == 'mailserver' ]]
   then
-    CMD_LOGS=(docker logs "${TEST_NAME}")
+    CMD_LOGS=(docker logs "${CONTAINER_NAME}")
   fi
 
   echo "${CMD_LOGS[@]}"
