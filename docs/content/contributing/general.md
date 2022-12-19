@@ -24,11 +24,17 @@ To run the test suite, you will need to
 
     We do not support running linting, tests, etc on macOS at this time. Please use a linux VM.
 
+??? tip "Setting the Degree of Parallelization for Tests"
+
+    If your machine is capable, you can increase the amount of tests that are run simultaneously by prepending the `make clean all` command with `PARALLEL_JOBS=X` (i.e. `PARALLEL_JOBS=X make clean all`). This wil speed up the test procedure. You can also run all tests in serial by setting `PARALLEL_JOBS=1` this way.
+
+    The default value of `PARALLEL_JOBS` is 2. Increasing it to `3` requires 6 threads and 6GB of main memory; increasing it to `4` requires 8 threads and at least 8GB of main memory.
+
 ??? tip "Running a Specific Test"
 
-    To run a specific test, use `make build generate-accounts test/<TEST NAME>`, where `<TEST NAME>` is the file name of the test (_for more precision use a relative path: `test/test/<PATH>`_) excluding the `.bats` suffix.
+    To run a specific test, use `make build generate-accounts test/<TEST NAME>`, where `<TEST NAME>` is the file name of the test (_for more precision use a relative path: `test/test/<PATH>`_) **excluding** the `.bats` suffix.
 
-    To run only the tests in `template.bats`, use `make test/template` (or `make test/parallel/set2/template`).
+    Example: To run only the tests in `template.bats`, use `make test/template` (or `make test/parallel/set2/template`).
 
 [Install Docker]: https://docs.docker.com/get-docker/
 

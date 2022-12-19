@@ -43,16 +43,16 @@ clean:
 tests: ALWAYS_RUN
 # See https://github.com/docker-mailserver/docker-mailserver/pull/2857#issuecomment-1312724303
 # on why `generate-accounts` is run before each set (TODO/FIXME)
-	@ $(MAKE) generate-accounts tests/serial
-	@ $(MAKE) generate-accounts tests/parallel/set1
-	@ $(MAKE) generate-accounts tests/parallel/set2
-	@ $(MAKE) generate-accounts tests/parallel/set3
+	@ $(MAKE) --no-print-directory generate-accounts tests/serial
+	@ $(MAKE) --no-print-directory generate-accounts tests/parallel/set1
+	@ $(MAKE) --no-print-directory generate-accounts tests/parallel/set2
+	@ $(MAKE) --no-print-directory generate-accounts tests/parallel/set3
 
 tests/serial: ALWAYS_RUN
-	@ shopt -s globstar ; ./test/bats/bin/bats --timing --jobs 1 test/$@/**.bats
+	@ shopt -s globstar ; ./test/bats/bin/bats --timing --jobs 1 test/$@/*.bats
 
 tests/parallel/set%: ALWAYS_RUN
-	@ shopt -s globstar ; ./test/bats/bin/bats --timing --jobs $(PARALLEL_JOBS) test/$@/**.bats
+	@ shopt -s globstar ; ./test/bats/bin/bats --timing --jobs $(PARALLEL_JOBS) test/$@/**/*.bats
 
 test/%: ALWAYS_RUN
 	@ shopt -s globstar nullglob ; ./test/bats/bin/bats --timing test/tests/**/{$*,}.bats
